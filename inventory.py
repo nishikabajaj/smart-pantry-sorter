@@ -1,2 +1,1 @@
-
-
+# Inventory management system for the smart pantry sorter project.

@@ -1,0 +1,1 @@
+# Sorting mechanism for the smart pantry sorter project.
