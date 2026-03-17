@@ -1,1 +1,0 @@
-# Here is where we will put our hardware tests. This will be used to test the functionality of the hardware components of our smart pantry sorter, such as the sensors, motors, and microcontroller. We will write code to test each component individually and ensure that they are working correctly before integrating them into the overall system.
