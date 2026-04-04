@@ -12,9 +12,26 @@ LIMIT_PINS = {
     4: 25,
 }
 
+# The physical limit switch that gets triggered when rotating to a
+# target bin is NOT the switch numbered the same as that bin. The carousel has
+# a single stopper, and the switch positions are physically laid out so that
+# arriving at a bin activates a *different* switch number.
+
+# Mapping (bin -> which limit switch position is activated upon arrival):
+#   Bin 1 -> Position 1  (switch at LIMIT_PINS[1])
+#   Bin 2 -> Position 4  (switch at LIMIT_PINS[4])
+#   Bin 3 -> Position 3  (switch at LIMIT_PINS[3])
+#   Bin 4 -> Position 2  (switch at LIMIT_PINS[2])
+
+BIN_TO_LIMIT_POSITION = {
+    1: 1,
+    2: 4,
+    3: 3,
+    4: 2,
+}
+
 STEP_DELAY = 0.005
 POLL_DELAY = 0.01
-
 
 def setup():
     GPIO.setmode(GPIO.BCM)
@@ -42,15 +59,15 @@ def lookup_item_target(item_id):
         print("This item has not been added to the pantry or has no category.")
         return None
 
-    category_id = category_row[0][0] if isinstance(category_row, list) else category_row
+    category_id = category_row[0][0]
 
-    q = "SELECT id FROM bin WHERE category = ?"
+    q = "SELECT id FROM bin WHERE category_id = ?"
     bin_row = inventory.get_data(q, (category_id,))
     if not bin_row:
         print("No bin exists for this category.")
         return None
 
-    bin_id = bin_row[0][0] if isinstance(bin_row, list) else bin_row
+    bin_id = bin_row[0][0]
 
     return item_id, category_id, bin_id
 
@@ -69,8 +86,10 @@ def step_motor(direction=GPIO.LOW):
 
 
 def rotate_until_bin(target_bin, direction=GPIO.LOW, max_steps=5000):
+    target_limit_position = BIN_TO_LIMIT_POSITION[target_bin]
+    
     for _ in range(max_steps):
-        if get_limit_state(target_bin):
+        if get_limit_state(target_limit_position):
             return True
         step_motor(direction)
         time.sleep(POLL_DELAY)
