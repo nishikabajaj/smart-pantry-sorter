@@ -47,7 +47,6 @@ def identify_item():
     return item_data, new
     
 
-
 # MAIN LOGIC
 # 3 actions: (1) Add item, (2) Remove item, (3) Recommend recipe
 

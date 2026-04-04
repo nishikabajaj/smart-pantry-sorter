@@ -12,7 +12,7 @@ CORS(app)
 
 @app.route('/api/data', methods=['GET', 'POST'])
 
-def get_data(query):
+def get_data(query, params=None, one=False):
     # connection string for Python -> DB
     conn = pyodbc.connect(
         'DRIVER={ODBC Driver 17 for SQL Server};'
@@ -21,11 +21,11 @@ def get_data(query):
         'Trusted_Connection=yes;'
     )
     cursor = conn.cursor()
-    cursor.execute(query) # Use cursor.execute() to run queries
-    rows = [cursor.fetchall()]
+    cursor.execute(query, params or ()) # Use cursor.execute() to run queries
+    result = cursor.fetchone() if one else cursor.fetchall()
     cursor.close()
     conn.close()
-    return jsonify(rows)
+    return result
 
 def execute_query(query, data=None):
     # connection string for Python -> DB
@@ -59,26 +59,26 @@ def get_off_product(barcode): # Calls the OpenFoodFacts API to identify an item 
         return jsonify({"error": str(e)}), 500
 
 def get_master_db(barcode): # Check if an item is present in the local database's MasterInventory table; helps to avoid calling external API unecessarily
-    q = f"SELECT * FROM masterinventory WHERE barcode = {barcode}"
-    result = get_data(q)
+    q = "SELECT * FROM masterinventory WHERE barcode = ?"
+    result = get_data(q, (barcode,))
     
     return result
 
 def get_category_db(category): # Check if a category is present in the local database's ItemCategory table
-    q = f"SELECT * FROM itemcategory WHERE category = {category}"
-    result = get_data(q)
+    q = "SELECT * FROM itemcategory WHERE category = ?"
+    result = get_data(q, (category,))
     
     return result
 
-def get_inv_leveL_db(item_id): # Check if an item is present in the local database's InventoryLevels table
-    q = f"SELECT * FROM inventorylevels WHERE item_id = {item_id}"
-    result = get_data(q)
+def get_inv_level_db(item_id): # Check if an item is present in the local database's InventoryLevels table
+    q = "SELECT * FROM inventorylevels WHERE item_id = ?"
+    result = get_data(q, (item_id,))
     
     return result
     
-def get_bin_db(category_id): # Check if an item is present in the local database's InventoryLevels table
-    q = f"SELECT * FROM bin WHERE category_id = {category_id}"
-    result = get_data(q)
+def get_bin_db(category_id): # Check if an item is present in the local database's Bin table
+    q = "SELECT * FROM bin WHERE category_id = ?"
+    result = get_data(q, (category_id,))
     
     return result
 
@@ -107,15 +107,15 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         ingredients = [i["text"] for i in item_data["ingredients"]]
     
         # Add category to ItemCategory if it doesn't exist already
-        item_category_q = f"IF NOT EXISTS (SELECT 1 FROM itemcategory WHERE category = {category}) BEGIN INSERT INTO itemcategory (category) VALUES ({category}) END SELECT id FROM itemcategory WHERE category = {category}"
-        category_id = get_data(item_category_q)
+        item_category_q = "IF NOT EXISTS (SELECT 1 FROM itemcategory WHERE category = ?) BEGIN INSERT INTO itemcategory (category) VALUES (?) END SELECT id FROM itemcategory WHERE category = ?"
+        category_id = get_data(item_category_q, (category, category, category,))
     
-        bin_q = f"IF NOT EXISTS (SELECT 1 FROM bin WHERE category_id = {category_id}) BEGIN INSERT INTO bin (category_id) VALUES ({category_id}) END SELECT id FROM bin WHERE category_id = {category_id}"
-        bin_id = get_data(bin_q)
+        bin_q = "IF NOT EXISTS (SELECT 1 FROM bin WHERE category_id = ?) BEGIN INSERT INTO bin (category_id) VALUES (?) END SELECT id FROM bin WHERE category_id = ?"
+        bin_id = get_data(bin_q, (category_id, category_id, category_id,))
     
         # Add item to MasterInventory if it doesn't exist already
-        master_inv_q = f"IF NOT EXISTS (SELECT 1 FROM masterinventory WHERE barcode = {barcode}) BEGIN INSERT INTO masterinventory (barcode, name, brand, category) VALUES ({barcode, name, brand, category_id}) END SELECT id FROM masterinventory WHERE barcode = {barcode}"
-        item_id = get_data(master_inv_q)
+        master_inv_q = f"IF NOT EXISTS (SELECT 1 FROM masterinventory WHERE barcode = ?) BEGIN INSERT INTO masterinventory (barcode, name, brand, category) VALUES (? ? ? ?) END SELECT id FROM masterinventory WHERE barcode = ?"
+        item_id = get_data(master_inv_q, (barcode, barcode, name, brand, category_id, barcode,))
     
         # TODO: UPDATE WITH LOAD CELL LOGIC
         item_quantity_col = ""
@@ -126,15 +126,15 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
             item_quantity_col = "liquid_quantity"
     
         for a in allergens:
-            diet_flags_q = f"IF NOT EXISTS (SELECT 1 FROM dietflags WHERE flag = {a}) BEGIN INSERT INTO dietflags (flag) VALUES ({a}) END SELECT id FROM dietflags WHERE flag = {a}"
-            diet_flag_id = get_data(diet_flags_q)
+            diet_flags_q = f"IF NOT EXISTS (SELECT 1 FROM dietflags WHERE flag = ?) BEGIN INSERT INTO dietflags (flag) VALUES (?) END SELECT id FROM dietflags WHERE flag = ?"
+            diet_flag_id = get_data(diet_flags_q, (a, a, a,))
             
             master_diet_q = "IF NOT EXISTS (SELECT 1 FROM masterinventorydietflags WHERE master_inventory_id = %s AND diet_flag_id = %s)) BEGIN INSERT INTO masterinventorydietflags (master_inventory_id, diet_flag_id) VALUES (%s, %s) END"
             execute_query(master_diet_q, (item_id, diet_flag_id))
             
         for i in ingredients:
-            ingredients_q = f"IF NOT EXISTS (SELECT 1 FROM ingredients WHERE ingredient = {i}) BEGIN INSERT INTO ingredients (flag) VALUES ({a}) END SELECT id FROM ingredients WHERE ingredient = {i}"
-            ingredient_id = get_data(ingredients_q)
+            ingredients_q = f"IF NOT EXISTS (SELECT 1 FROM ingredients WHERE ingredient = ?) BEGIN INSERT INTO ingredients (flag) VALUES (?) END SELECT id FROM ingredients WHERE ingredient = ?"
+            ingredient_id = get_data(ingredients_q, (i, i, i,))
             
             master_ing_q = "IF NOT EXISTS (SELECT 1 FROM masterinventoryingredients WHERE master_inventory_id = %s AND ingredient_id = %s)) BEGIN INSERT INTO masterinventoryingredients (master_inventory_id, ingredient_id) VALUES (%s, %s) END"
             execute_query(master_ing_q, (item_id, ingredient_id))
@@ -222,9 +222,6 @@ def view_all_inventory():
     result = get_data(q)
     
     print(result)
-
-### VIEW ITEMS
-# Query and display all current items in inventory
 
 if __name__ == '__main__':
     app.run(port=5000)
