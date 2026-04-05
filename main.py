@@ -1,5 +1,5 @@
 
-import inventory, json
+import inventory, json, sorting, recipe
 
 def identify_item():
     print("Ready for scan. Scan a barcode (Ctrl+C to quit).")
@@ -46,21 +46,32 @@ def identify_item():
     # Return dictionary of item information
     return item_data, new
     
-
 # MAIN LOGIC
-# 3 actions: (1) Add item, (2) Remove item, (3) Recommend recipe
+def main():
+    print("Welcome to the Smart Pantry Sorter!\n "
+          "Pick a user action from the menu below:\n" 
+          "--------------------------------------\n"
+          "1. Add an item to inventory\n 2. Use an item\n 3. Remove an item\n 4. Recipe recommendations\nEnter 'Q' to quit.")
+    
+    menu_choice = ""
+    # 3 actions: (1) Add item, (2) Use item, (3) Remove item, (4) Recommend recipe
+    while (menu_choice.lower() != "q"):
+        menu_choice = input("Select your menu choice: ")
+        # For 1 and 2
+        # User scans barcode of item
+        # User places item on platform
+        item_data, new = identify_item()
+        match menu_choice:
+            case "1":
+                inventory.add_inventory(item_data, new)
+            case "2":
+                inventory.update_inventory(item_data, new)
+            case "3":
+                inventory.remove_inventory(item_data)
+            case "4":
+                break
+            case "q":
+                break
 
-# For 1 and 2
-# User scans barcode of item
-# User places item on platform
-
-# For 1
-# If item existed in inventory, send to inventory.py - update_item()
-# else, send to inventory.py - add_item()
-
-# For 2
-# If item existed in inventory, send to inventory.py - remove_item()
-
-
-# For 3
-# Navigate to recipe.py
+    # For 3
+    # Navigate to recipe.py

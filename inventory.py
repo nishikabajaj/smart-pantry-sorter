@@ -4,7 +4,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from datetime import datetime
 from loadcell import LoadCell
-import pyodbc, requests, atexit
+import pyodbc, requests, atexit, sorting
 
 
 # Single LoadCell instance shared for lifetime of this process
@@ -237,7 +237,9 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         f"VALUES (?, ?, ?, ?, ?)"
     )
     execute_query(transaction_q, (item_id, "ADD", datetime.now(), product_quantity, bin_id))
-        
+    
+    sorting.sort_item(item_id)
+    
     print("Success! Item added to pantry!")
     
     
@@ -302,6 +304,8 @@ def update_inventory(item_data):
     update_q = f"UPDATE inventorylevels SET {item_quantity_col} = ? WHERE item_id = ?"
     execute_query(update_q, (new_value, item_id))
  
+    sorting.sort_item(item_id)
+
     print("Success! Inventory updated!")
 
 def remove_inventory(item_data):
