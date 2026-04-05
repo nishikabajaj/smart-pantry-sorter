@@ -3,7 +3,12 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
 from datetime import datetime
-import pyodbc, requests
+from loadcell import LoadCell
+import pyodbc, requests, atexit
+
+
+# Single LoadCell instance shared for lifetime of this process
+_load_cell = LoadCell()
 
 # print(pyodbc.drivers()) # Confirm that the Microsoft ODBC Driver for SQL Server is installed.
 
@@ -142,9 +147,18 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         item_quantity_col = ""
         if product_quantity_unit == "g":
             item_quantity_col = "gross_weight"
+            print("Place the item on the platform and wait...")
+            product_quantity = _load_cell.stable_weight_g()
+            print(f"Measured weight: {product_quantity:.1f}")
         
         elif product_quantity_unit == "oz":
+            # Liquid/volume items: used the package stated quantity
             item_quantity_col = "liquid_quantity"
+            
+        else:
+            # Countable item (no weight/volume tracked)
+            item_quantity_col = "count"
+            product_quantity = int(input("Enter count to add: "))
     
         for a in allergens:
             diet_flags_q = (
@@ -190,9 +204,26 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         category_id = item[4]
         bin_id = get_bin_db(category_id)[0][0]
         
-        # TODO: FIX THESE PARAMETERS
-        item_quantity_col = "count"
-        product_quantity = 1
+        # For known items (re-stocking a barcode already in MasterInventory),
+        # check the existing inventory level to determine the correct column,
+        # then weigh the item being added.
+        existing = get_inv_level_db(item_id)
+        if existing and existing[0][2] is not None:
+            # gross_weight column (index 2) is already populated for this item
+            item_quantity_col = "gross_weight"
+            print("Place the item on the scale and hold still...")
+            product_quantity = _load_cell.stable_weight_g()
+            print(f"Measured weight: {product_quantity:.1f} g")
+            
+        elif existing and existing[0][3] is not None:
+            # liquid_quantity column (index 3) is populated
+            item_quantity_col = "liquid_quantity"
+            product_quantity = float(input("Enter liquid quantity (oz): "))
+            
+        else:
+            # Countable item (no weight/volume tracked)
+            item_quantity_col = "count"
+            product_quantity = int(input("Enter count to add: "))
     
     inv_levels_q = (
         f"IF NOT EXISTS (SELECT 1 FROM inventorylevels WHERE item_id = ?) "
@@ -221,33 +252,56 @@ def update_inventory(item_data):
     # category_id = item[4]
     # bin_id = get_bin_db(category_id)[0][0]
     
-    inv_level = get_inv_leveL_db(item_id)[0]
+    inv_level = get_inv_level_db(item_id)[0]
     
     # First check if item is new -- avoid user error, if it is, return error for user to add new item
     if not inv_level:
         print("Error: This item needs to be added to the pantry first!")
         return
     
-    gross_weight = inv_level[0]
-    liquid_quantity = inv_level[1]
-    count = inv_level[2]
-    location_bin_id = inv_level[3]
-    expiration_date = inv_level[4]
+    inv_level = inv_level[0] # unwrap first and expected only row
+    gross_weight = inv_level[1]
+    liquid_quantity = inv_level[2]
+    count = inv_level[3]
+    location_bin_id = inv_level[5]
+    expiration_date = inv_level[5]
     
     item_quantity_col = ""
     
-    if gross_weight != None:
-        item_quantity_col = gross_weight
-        # TODO: INSERT LOAD CELL LOGIC TO WEIGH USAGE
-        usage = 5
+    if gross_weight is not None:
+        item_quantity_col = "gross_weight"
+        
+        # Weigh the item after use to compute consumption by difference.
+        # Ask the user to place the item back on the scale; the load cell
+        # measures the remaining weight and we diff against the DB value.
+        
+        print("Place the item back on the scale to measure remaining weight...")
+        remaining = _load_cell.stable_weight_g()
+        print(f"Remaining weight: {remaining:.1f} g  (was {gross_weight:.1f} g)")
+        usage = gross_weight - remaining
+        if usage < 0:
+            # Remaining reads heavier than recorded -- likely a calibration drift;
+            # clamp to 0 so we don't write a negative usage.
+            print(f"Warning: measured remaining ({remaining:.1f} g) > stored ({gross_weight:.1f} g). "
+                  "Check calibration. No update applied.")
+            return
+        new_value = remaining
+        
+    elif liquid_quantity is not None:
+        item_quantity_col = "liquid_quantity"
+        usage = float(input("Insert how much you used (oz): "))
+        new_value = (liquid_quantity or 0) - usage
     
     else:
-        item_quantity_col = "liquid_quantity"
-        usage = input("Insert how much you used: ")
-    
-    update_q = "UPDATE inventorylevels SET %s = %s WHERE item_id = %s"
-    execute_query(update_q, (item_quantity_col, gross_weight - usage, item_id))
-    
+        # Countable item (no weight/volume tracked)
+        item_quantity_col = "count"
+        usage = int(input("Enter usage count: "))
+        new_value = (count - usage)
+        
+ 
+    update_q = f"UPDATE inventorylevels SET {item_quantity_col} = ? WHERE item_id = ?"
+    execute_query(update_q, (new_value, item_id))
+ 
     print("Success! Inventory updated!")
 
 def remove_inventory(item_data):
@@ -258,7 +312,7 @@ def remove_inventory(item_data):
     name = item[2]
     
     confirmation = input(f"Confirm deletion of {name}. Input y/n")
-    if confirmation == "y" or confirmation == "Y":
+    if confirmation.lower() == "y":
         q = "DELETE FROM inventorylevels WHERE item_id = %s"
         execute_query(q, item_id)
         print("Item deleted from pantry")
@@ -271,6 +325,8 @@ def view_all_inventory():
     result = get_data(q)
     print(result)
     return result
+
+atexit.register(_load_cell.cleanup)
 
 if __name__ == '__main__':
     app.run(port=5000)
