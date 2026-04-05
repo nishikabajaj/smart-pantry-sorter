@@ -65,7 +65,7 @@ def main():
             case "1":
                 inventory.add_inventory(item_data, new)
             case "2":
-                inventory.update_inventory(item_data, new)
+                inventory.update_inventory(item_data)
             case "3":
                 inventory.remove_inventory(item_data)
             case "4":

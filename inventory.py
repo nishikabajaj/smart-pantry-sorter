@@ -1,25 +1,13 @@
 # Inventory management system for the smart pantry sorter project.
 
-from flask import Flask, jsonify
-from flask_cors import CORS
 from datetime import datetime
 from loadcell import LoadCell
 import pyodbc, requests, atexit, sorting
-
 
 # Single LoadCell instance shared for lifetime of this process
 _load_cell = LoadCell()
 
 # print(pyodbc.drivers()) # Confirm that the Microsoft ODBC Driver for SQL Server is installed.
-
-app = Flask(__name__)
-CORS(app)
-
-@app.route('/api/data', methods=['GET', 'POST'])
-def api_data():
-    result = view_all_inventory()
-    return jsonify(result)
-
 
 def get_data(query, params=None, one=False):
     # connection string for Python -> DB
