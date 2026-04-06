@@ -1,13 +1,54 @@
-body {
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+@import './components/components.css';
+
+*, *::before, *::after {
+  box-sizing: border-box;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  padding: 0;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+:root {
+  --bg:          #0f0f0f;
+  --bg2:         #161616;
+  --bg3:         #1f1f1f;
+  --border:      #2a2a2a;
+  --border2:     #3a3a3a;
+  --amber:       #f5a623;
+  --amber-dim:   #7a5010;
+  --amber-glow:  #f5a62322;
+  --green:       #4caf7d;
+  --green-dim:   #1e4732;
+  --red:         #e05c5c;
+  --red-dim:     #4a1c1c;
+  --text:        #e8e8e8;
+  --text-dim:    #888;
+  --text-faint:  #444;
+  --mono:        'IBM Plex Mono', monospace;
+  --sans:        'IBM Plex Sans', sans-serif;
+  --radius:      4px;
+  --transition:  180ms ease;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scanline overlay — subtle CRT texture over the entire UI */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.04) 2px,
+    rgba(0, 0, 0, 0.04) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
 }

@@ -1,25 +1,37 @@
-import logo from './logo.svg';
+import { useState } from 'react';
 import './App.css';
 
-function App() {
+import HomeScreen      from './screens/HomeScreen';
+import AddScreen       from './screens/AddScreen';
+import UseScreen       from './screens/UseScreen';
+import RemoveScreen    from './screens/RemoveScreen';
+import InventoryScreen from './screens/InventoryScreen';
+import RecipesScreen   from './screens/RecipesScreen';
+
+export default function App() {
+  const [screen, setScreen] = useState('home');
+
+  const goHome = () => setScreen('home');
+
+  const screens = {
+    home:      <HomeScreen      onNavigate={setScreen} />,
+    add:       <AddScreen       onBack={goHome} />,
+    use:       <UseScreen       onBack={goHome} />,
+    remove:    <RemoveScreen    onBack={goHome} />,
+    inventory: <InventoryScreen onBack={goHome} />,
+    recipes:   <RecipesScreen   onBack={goHome} />,
+  };
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
+    <div className="app">
+      <header className="header">
+        <div className="header-logo">Smart Pantry</div>
+        <div className="header-status">
+          <div className="status-dot" />
+          System Online
+        </div>
       </header>
+      {screens[screen] ?? <HomeScreen onNavigate={setScreen} />}
     </div>
   );
 }
-
-export default App;
