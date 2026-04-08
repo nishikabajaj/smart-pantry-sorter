@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from loadcell import LoadCell
+from load_cell import LoadCell
 import inventory
 
 
@@ -111,3 +111,9 @@ def api_recipes():
     # TODO: implement recipe.py and call it here
     # Example: return jsonify(recipe.get_suggestions())
     return jsonify([])   # returns empty list until recipe.py is built
+
+
+if __name__ == '__main__':
+    app.run(port=5000)
+    
+# Run with python flask_app.py. Test at http://localhost:5000/api/data

@@ -19,6 +19,8 @@ import time
 from hx711 import HX711
 import RPi.GPIO as GPIO
 
+GPIO.setwarnings(False)
+
 # GPIO pins
 DT_PIN  = 5   # GPIO5  (DOUT)
 SCK_PIN = 6   # GPIO6  (PD_SCK)
@@ -126,7 +128,4 @@ class LoadCell:
 
     def cleanup(self) -> None:
         """Release GPIO resources.  Call once on process shutdown."""
-        try:
-            GPIO.cleanup()
-        except Exception:
-            pass
+        GPIO.cleanup()

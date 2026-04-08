@@ -1,5 +1,5 @@
 
-import inventory, json, sorting, recipe
+import inventory, json, sorting, recipe, flask_app, load_cell
 
 def identify_item():
     print("Ready for scan. Scan a barcode (Ctrl+C to quit).")

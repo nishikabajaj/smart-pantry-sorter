@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, time, signal
+import sys, time, signal, load_cell
 import inventory
 import RPi.GPIO as GPIO
 

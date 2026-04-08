@@ -1,22 +1,18 @@
 # Inventory management system for the smart pantry sorter project.
 
 from datetime import datetime
-from loadcell import LoadCell
-import pyodbc, requests, atexit, sorting
+from load_cell import LoadCell
+import sqlite3, requests, atexit, sorting, flask_app, os
 
 # Single LoadCell instance shared for lifetime of this process
 _load_cell = LoadCell()
 
-# print(pyodbc.drivers()) # Confirm that the Microsoft ODBC Driver for SQL Server is installed.
+DB_PATH = os.path.join(os.path.dirname(__file__), 'pantry.db')
 
 def get_data(query, params=None, one=False):
     # connection string for Python -> DB
-    conn = pyodbc.connect(
-        'DRIVER={ODBC Driver 17 for SQL Server};'
-        'SERVER=localhost\\SQLEXPRESS;'
-        'DATABASE=FoodPantryDB;'
-        'Trusted_Connection=yes;'
-    )
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row # allows access to columns by name
     cursor = conn.cursor()
     cursor.execute(query, params or ()) # Use cursor.execute() to run queries
     result = cursor.fetchone() if one else cursor.fetchall()
@@ -27,12 +23,7 @@ def get_data(query, params=None, one=False):
 
 def execute_query(query, data=None):
     # connection string for Python -> DB
-    conn = pyodbc.connect(
-        'DRIVER={ODBC Driver 17 for SQL Server};'
-        'SERVER=localhost\\SQLEXPRESS;'
-        'DATABASE=FoodPantryDB;'
-        'Trusted_Connection=yes;'
-    )
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(query, data) # Use cursor.execute() to run queries
     conn.commit()
@@ -107,31 +98,21 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         ingredients = [i["text"] for i in item_data["ingredients"]]
     
         # Add category to ItemCategory if it doesn't exist already
-        item_category_q = (
-            "IF NOT EXISTS (SELECT 1 FROM itemcategory WHERE category = ?) "
-            "BEGIN INSERT INTO itemcategory (category) VALUES (?) END "
-            "SELECT id FROM itemcategory WHERE category = ?"
-        )
-        category_result = get_data(item_category_q, (category, category, category,))
+        execute_query("INSERT OR IGNORE INTO itemcategory (category) VALUES (?)", (category,))
+        category_result = get_data("SELECT id FROM itemcategory WHERE category = ?", (category,))
         category_id = category_result[0][0]
-    
-        bin_q = (
-            "IF NOT EXISTS (SELECT 1 FROM bin WHERE category_id = ?) "
-            "BEGIN INSERT INTO bin (category_id) VALUES (?) END "
-            "SELECT id FROM bin WHERE category_id = ?"
-        )
-        bin_result = get_data(bin_q, (category_id, category_id, category_id,))
+        
+        execute_query("INSERT OR IGNORE INTO bin (category_id) VALUES (?)", (category_id,))
+        bin_result = get_data("SELECT id FROM bin WHERE category_id = ?", (category_id,))
         bin_id = bin_result[0][0]
     
-        master_inv_q = (
-            "IF NOT EXISTS (SELECT 1 FROM masterinventory WHERE barcode = ?) "
-            "BEGIN INSERT INTO masterinventory (barcode, name, brand, category) VALUES (?, ?, ?, ?) END "
-            "SELECT id FROM masterinventory WHERE barcode = ?"
+        execute_query(
+            "INSERT OR IGNORE INTO masterinventory (barcode, name, brand, category) VALUES (?, ?, ?, ?)",
+            (barcode, name, brand, category_id)
         )
-        item_result = get_data(master_inv_q, (barcode, barcode, name, brand, category_id, barcode))
+        item_result = get_data("SELECT id FROM masterinventory WHERE barcode = ?", (barcode,))
         item_id = item_result[0][0]
         
-        # TODO: UPDATE WITH LOAD CELL LOGIC
         item_quantity_col = ""
         if product_quantity_unit == "g":
             item_quantity_col = "gross_weight"
@@ -149,39 +130,23 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
             product_quantity = int(input("Enter count to add: "))
     
         for a in allergens:
-            diet_flags_q = (
-                "IF NOT EXISTS (SELECT 1 FROM dietflags WHERE flag = ?) "
-                "BEGIN INSERT INTO dietflags (flag) VALUES (?) END "
-                "SELECT id FROM dietflags WHERE flag = ?"
-            )
-            diet_flag_result = get_data(diet_flags_q, (a, a, a))
+            execute_query("INSERT OR IGNORE INTO dietflags (flag) VALUES (?)", (a,))
+            diet_flag_result = get_data("SELECT id FROM dietflags WHERE flag = ?", (a,))
             diet_flag_id = diet_flag_result[0][0]
- 
-            master_diet_q = (
-                "IF NOT EXISTS (SELECT 1 FROM masterinventorydietflags "
-                "WHERE master_inventory_id = ? AND diet_flag_id = ?) "
-                "BEGIN INSERT INTO masterinventorydietflags (master_inventory_id, diet_flag_id) "
-                "VALUES (?, ?) END"
+            execute_query(
+                "INSERT OR IGNORE INTO masterinventorydietflags (master_inventory_id, diet_flag_id) VALUES (?, ?)",
+                (item_id, diet_flag_id)
             )
-            execute_query(master_diet_q, (item_id, diet_flag_id, item_id, diet_flag_id))
  
         for i in ingredients:
-            ingredients_q = (
-                "IF NOT EXISTS (SELECT 1 FROM ingredients WHERE ingredient = ?) "
-                "BEGIN INSERT INTO ingredients (ingredient) VALUES (?) END "
-                "SELECT id FROM ingredients WHERE ingredient = ?"
-            )
-            ingredient_result = get_data(ingredients_q, (i, i, i))
+            execute_query("INSERT OR IGNORE INTO ingredients (ingredient) VALUES (?)", (i,))
+            ingredient_result = get_data("SELECT id FROM ingredients WHERE ingredient = ?", (i,))
             ingredient_id = ingredient_result[0][0]
- 
-            master_ing_q = (
-                "IF NOT EXISTS (SELECT 1 FROM masterinventoryingredients "
-                "WHERE master_inventory_id = ? AND ingredient_id = ?) "
-                "BEGIN INSERT INTO masterinventoryingredients (master_inventory_id, ingredient_id) "
-                "VALUES (?, ?) END"
+            execute_query(
+                "INSERT OR IGNORE INTO masterinventoryingredients (master_inventory_id, ingredient_id) VALUES (?, ?)",
+                (item_id, ingredient_id)
             )
-            execute_query(master_ing_q, (item_id, ingredient_id, item_id, ingredient_id))
-    
+ 
     else: # Extract data from DB dictionary
         # Columns: id, barcode, name, brand, category
         item = item_data[0]
@@ -214,17 +179,16 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
             product_quantity = int(input("Enter count to add: "))
     
     inv_levels_q = (
-        f"IF NOT EXISTS (SELECT 1 FROM inventorylevels WHERE item_id = ?) "
-        f"BEGIN INSERT INTO inventorylevels (item_id, {item_quantity_col}, location_bin_id) "
-        f"VALUES (?, ?, ?) END"
+    f"INSERT OR IGNORE INTO inventorylevels (item_id, {item_quantity_col}, location_bin_id) "
+    f"VALUES (?, ?, ?)"
     )
-    execute_query(inv_levels_q, (item_id, item_id, product_quantity, bin_id))
+    execute_query(inv_levels_q, (item_id, product_quantity, bin_id))
  
     transaction_q = (
         f"INSERT INTO transactions (item_id, action, date, {item_quantity_col}, current_location) "
         f"VALUES (?, ?, ?, ?, ?)"
     )
-    execute_query(transaction_q, (item_id, "ADD", datetime.now(), product_quantity, bin_id))
+    execute_query(transaction_q, (item_id, "ADD", datetime.now().isoformat(), product_quantity, bin_id))
     
     sorting.sort_item(item_id)
     
@@ -242,20 +206,18 @@ def update_inventory(item_data):
     # category_id = item[4]
     # bin_id = get_bin_db(category_id)[0][0]
     
-    inv_level = get_inv_level_db(item_id)[0]
-    
-    # First check if item is new -- avoid user error, if it is, return error for user to add new item
-    if not inv_level:
-        print("Error: This item needs to be added to the pantry first!")
-        return
-    
-    inv_level = inv_level[0] # unwrap first and expected only row
-    gross_weight = inv_level[1]
+    inv_level_rows = get_inv_level_db(item_id)
+
+    if not inv_level_rows:
+        raise ValueError("This item needs to be added to the pantry first!")
+
+    inv_level = inv_level_rows[0]  # first (and only expected) row
+    gross_weight    = inv_level[1]
     liquid_quantity = inv_level[2]
-    count = inv_level[3]
-    location_bin_id = inv_level[5]
-    expiration_date = inv_level[5]
-    
+    count           = inv_level[3]
+    location_bin_id = inv_level[4]  # was wrongly 5
+    expiration_date = inv_level[5]  # index 5 is correct for expiration
+        
     item_quantity_col = ""
     
     if gross_weight is not None:
@@ -305,8 +267,8 @@ def remove_inventory(item_data):
     
     confirmation = input(f"Confirm deletion of {name}. Input y/n")
     if confirmation.lower() == "y":
-        q = "DELETE FROM inventorylevels WHERE item_id = %s"
-        execute_query(q, item_id)
+        q = "DELETE FROM inventorylevels WHERE item_id = ?"
+        execute_query(q, (item_id,))
         print("Item deleted from pantry")
         
     else:
@@ -319,8 +281,3 @@ def view_all_inventory():
     return result
 
 atexit.register(_load_cell.cleanup)
-
-if __name__ == '__main__':
-    app.run(port=5000)
-    
-# Run with python inventory.py. Test at http://localhost:5000/api/data
