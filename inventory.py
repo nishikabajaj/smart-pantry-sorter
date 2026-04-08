@@ -43,10 +43,12 @@ def get_off_product(barcode): # Calls the OpenFoodFacts API to identify an item 
         data.raise_for_status()
         return data.json()
     
-    except requests.exceptions.RequestException as e:
-        # Handle connection errors, timeouts, etc.
-        return jsonify({"error": str(e)}), 500
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 500
+        raise RuntimeError(f"OpenFoodFacts HTTP error {status}: {str(e)}")
 
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"OpenFoodFacts request failed: {str(e)}")
 
 def get_master_db(barcode): # Check if an item is present in the local database's MasterInventory table; helps to avoid calling external API unecessarily
     q = "SELECT * FROM masterinventory WHERE barcode = ?"
@@ -93,9 +95,9 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         product_quantity_unit = item_data["product_quantity_unit"]
         
         delimiter = ":"
-        allergens = [a.split(delimiter)[-1] for a in item_data["allergens"]]
+        allergens = [a.split(delimiter)[-1] if delimiter in a else a for a in item_data["allergens"]]
         
-        ingredients = [i["text"] for i in item_data["ingredients"]]
+        ingredients = [i["text"] if isinstance(i, dict) else i for i in item_data["ingredients"]]
     
         # Add category to ItemCategory if it doesn't exist already
         execute_query("INSERT OR IGNORE INTO itemcategory (category) VALUES (?)", (category,))

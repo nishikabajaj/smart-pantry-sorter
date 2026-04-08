@@ -40,8 +40,11 @@ def api_scan():
     if item_data:
         return jsonify({"item_data": format_item(item_data), "new": False})
  
-    # Not in local DB — call OpenFoodFacts
-    raw = inventory.get_off_product(barcode)
+    try:
+        raw = inventory.get_off_product(barcode)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 502
+
     if not isinstance(raw, dict) or raw.get("status") != 1:
         return jsonify({"error": "Item not found"}), 404
  
@@ -50,8 +53,18 @@ def api_scan():
         "ingredients", "allergens", "traces",
         "product_quantity", "product_quantity_unit"
     ]
-    item_data = {k: raw.get("product", {}).get(k) for k in filter_keys}
-    return jsonify({"item_data": item_data, "new": True})
+    
+    product = raw.get("product", {})
+    item_data = {k: product.get(k) for k in filter_keys}
+
+    display_data = {**item_data}
+    display_data["name"]  = item_data.get("product_name") or "Unknown Item"
+    display_data["brand"]        = [b.strip() for b in (product.get("brands") or "").split(",") if b.strip()]
+    display_data["ingredients"]   = [i.get("text", "") if isinstance(i, dict) else i for i in (product.get("ingredients") or [])]
+    display_data["allergens"]     = [a.split(":")[-1].strip() for a in (product.get("allergens_tags") or []) if a.strip()]
+    display_data["categories"]    = [c.strip() for c in (product.get("categories") or "").split(",") if c.strip()]
+
+    return jsonify({"item_data": display_data, "new": True})
  
  
 # Polled by the UI while the scale animation is showing.
