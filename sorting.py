@@ -34,7 +34,8 @@ STEP_DELAY = 0.005
 POLL_DELAY = 0.01
 
 def setup():
-    GPIO.setmode(GPIO.BCM)
+    if GPIO.getmode() is None:        # ← only set mode if not already set
+        GPIO.setmode(GPIO.BCM)
     GPIO.setup(STEP, GPIO.OUT, initial=GPIO.LOW)
     GPIO.setup(DIR, GPIO.OUT, initial=GPIO.LOW)
     GPIO.setup(EN, GPIO.OUT, initial=GPIO.HIGH)
@@ -49,7 +50,6 @@ def cleanup(code=0):
         GPIO.output(EN, GPIO.HIGH)
     finally:
         GPIO.cleanup()
-    raise SystemExit(code)
 
 
 def lookup_item_target(item_id):
@@ -97,12 +97,21 @@ def rotate_until_bin(target_bin, direction=GPIO.LOW, max_steps=5000):
 
 
 def sort_item(item_id):
+    setup()
     target = lookup_item_target(item_id)
     if not target:
+        print("lookup_item_target returned None")
         return False
 
     _, category_id, bin_id = target
+    print(f"Target bin_id: {bin_id}")
+    print(f"Limit switch states at startup:")
+    for b, pos in BIN_TO_LIMIT_POSITION.items():
+        pin = LIMIT_PINS[pos]
+        print(f"  bin {b} -> limit position {pos} -> pin {pin} -> {GPIO.input(pin)}")
+
     ok = rotate_until_bin(bin_id)
+    print(f"rotate_until_bin returned: {ok}")
     if not ok:
         print(f"Could not position bin {bin_id} for category {category_id}.")
         return False

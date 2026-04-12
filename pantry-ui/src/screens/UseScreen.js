@@ -74,9 +74,9 @@ export default function UseScreen({ onBack }) {
     try {
       await apiPost('/api/update', { item_data: item, usage: qty });
       setResult({ success: true, msg: 'Inventory updated.' });
+      setStage('done');
     } catch {
       setResult({ success: false, msg: 'Failed to update inventory.' });
-    } finally {
       setStage('done');
     }
   }
@@ -94,13 +94,31 @@ export default function UseScreen({ onBack }) {
       <BackButton onClick={() => setStage('scan')} />
       <div className="section-label">Record Usage</div>
       <ItemCard item={item} />
+
+      {item?.current_quantity != null && (
+        <div className="banner info">
+          Current stock: <strong>{item.current_quantity}{item.product_quantity_unit}</strong>
+        </div>
+      )}
+
       {isWeighed ? (
         <>
-          <div className="banner info">
-            Place the item back on the scale to measure remaining weight.
-          </div>
           <button className="btn btn-primary" onClick={() => setStage('weighing')}>
-            Start Weighing
+            Weigh Remaining
+          </button>
+
+          <div className="section-label" style={{ marginTop: 16 }}>Or enter manually</div>
+          <label className="input-label">Amount used (g)</label>
+          <input
+            className="input-field"
+            type="number"
+            min="0"
+            placeholder="0"
+            value={manualQty}
+            onChange={e => setManualQty(e.target.value)}
+          />
+          <button className="btn" onClick={submitManual} disabled={!manualQty}>
+            Record Manual Usage
           </button>
         </>
       ) : (
@@ -121,6 +139,7 @@ export default function UseScreen({ onBack }) {
           </button>
         </>
       )}
+
       <button className="btn" onClick={() => setStage('scan')}>Re-scan</button>
     </div>
   );
@@ -141,3 +160,4 @@ export default function UseScreen({ onBack }) {
     />
   );
 }
+

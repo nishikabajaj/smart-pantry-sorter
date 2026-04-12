@@ -1,11 +1,8 @@
 # Inventory management system for the smart pantry sorter project.
 
 from datetime import datetime
-from load_cell import LoadCell
-import sqlite3, requests, atexit, sorting, flask_app, os
-
-# Single LoadCell instance shared for lifetime of this process
-_load_cell = LoadCell()
+import load_cell
+import sqlite3, requests, atexit, sorting, os
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'pantry.db')
 
@@ -118,9 +115,7 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         item_quantity_col = ""
         if product_quantity_unit == "g":
             item_quantity_col = "gross_weight"
-            print("Place the item on the platform and wait...")
-            product_quantity = _load_cell.stable_weight_g()
-            print(f"Measured weight: {product_quantity:.1f}")
+            print(f"Using pre-measured weight: {product_quantity:.1f} g")
         
         elif product_quantity_unit == "oz":
             # Liquid/volume items: used the package stated quantity
@@ -197,68 +192,83 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
     print("Success! Item added to pantry!")
     
     
-def update_inventory(item_data):    
-    # Extract data from DB dictionary
-    # Columns: id, barcode, name, brand, category
+def update_inventory(item_data, remaining_weight=None, usage=None):
     item = item_data[0]
     item_id = item[0]
-    # barcode = item[1]
-    # name = item[2]
-    # brand = item[3]
-    # category_id = item[4]
-    # bin_id = get_bin_db(category_id)[0][0]
-    
-    inv_level_rows = get_inv_level_db(item_id)
 
+    inv_level_rows = get_inv_level_db(item_id)
     if not inv_level_rows:
         raise ValueError("This item needs to be added to the pantry first!")
 
-    inv_level = inv_level_rows[0]  # first (and only expected) row
+    inv_level       = inv_level_rows[0]
     gross_weight    = inv_level[1]
     liquid_quantity = inv_level[2]
     count           = inv_level[3]
-    location_bin_id = inv_level[4]  # was wrongly 5
-    expiration_date = inv_level[5]  # index 5 is correct for expiration
-        
-    item_quantity_col = ""
-    
+
     if gross_weight is not None:
         item_quantity_col = "gross_weight"
-        
-        # Weigh the item after use to compute consumption by difference.
-        # Ask the user to place the item back on the scale; the load cell
-        # measures the remaining weight and we diff against the DB value.
-        
-        print("Place the item back on the scale to measure remaining weight...")
-        remaining = _load_cell.stable_weight_g()
-        print(f"Remaining weight: {remaining:.1f} g  (was {gross_weight:.1f} g)")
-        usage = gross_weight - remaining
-        if usage < 0:
-            # Remaining reads heavier than recorded -- likely a calibration drift;
-            # clamp to 0 so we don't write a negative usage.
-            print(f"Warning: measured remaining ({remaining:.1f} g) > stored ({gross_weight:.1f} g). "
-                  "Check calibration. No update applied.")
-            return
-        new_value = remaining
-        
+        if remaining_weight is not None:
+            new_value = remaining_weight
+        elif usage is not None:
+            new_value = gross_weight - usage   # manual: subtract usage from stored
+        else:
+            raise ValueError("No remaining_weight or usage provided for weighed item.")
+
     elif liquid_quantity is not None:
         item_quantity_col = "liquid_quantity"
-        usage = float(input("Insert how much you used (oz): "))
+        if usage is None:
+            raise ValueError("No usage provided for liquid item.")
         new_value = (liquid_quantity or 0) - usage
-    
-    else:
-        # Countable item (no weight/volume tracked)
-        item_quantity_col = "count"
-        usage = int(input("Enter usage count: "))
-        new_value = (count - usage)
-        
- 
-    update_q = f"UPDATE inventorylevels SET {item_quantity_col} = ? WHERE item_id = ?"
-    execute_query(update_q, (new_value, item_id))
- 
-    sorting.sort_item(item_id)
 
-    print("Success! Inventory updated!")
+    else:
+        item_quantity_col = "count"
+        if usage is None:
+            raise ValueError("No usage provided for count item.")
+        new_value = (count or 0) - int(usage)
+
+    execute_query(
+        f"UPDATE inventorylevels SET {item_quantity_col} = ? WHERE item_id = ?",
+        (new_value, item_id)
+    )
+    sorting.sort_item(item_id)
+    print("Inventory updated!")
+    item = item_data[0]
+    item_id = item[0]
+
+    inv_level_rows = get_inv_level_db(item_id)
+    if not inv_level_rows:
+        raise ValueError("This item needs to be added to the pantry first!")
+
+    inv_level       = inv_level_rows[0]
+    gross_weight    = inv_level[1]
+    liquid_quantity = inv_level[2]
+    count           = inv_level[3]
+
+    if gross_weight is not None:
+        item_quantity_col = "gross_weight"
+        if remaining_weight is not None:
+            new_value = remaining_weight
+        else:
+            # fallback to scale if called from CLI
+            print("Place the item back on the scale...")
+            new_value = load_cell.stable_weight_g()
+
+    elif liquid_quantity is not None:
+        item_quantity_col = "liquid_quantity"
+        used = usage if usage is not None else float(input("Amount used (oz): "))
+        new_value = (liquid_quantity or 0) - used
+
+    else:
+        item_quantity_col = "count"
+        used = int(usage) if usage is not None else int(input("Units used: "))
+        new_value = (count or 0) - used
+
+    execute_query(
+        f"UPDATE inventorylevels SET {item_quantity_col} = ? WHERE item_id = ?",
+        (new_value, item_id)
+    )
+    sorting.sort_item(item_id)
+    print("Inventory updated!")
 
 def remove_inventory(item_data):
     # Extract data from DB dictionary
@@ -277,9 +287,28 @@ def remove_inventory(item_data):
         print("Cancelled, item has not been removed from pantry")
     
 def view_all_inventory():
-    q = "SELECT * FROM inventorylevels"
-    result = get_data(q)
-    print(result)
+    q = """
+        SELECT mi.id, mi.barcode, mi.name, mi.brand, ic.category,
+               il.gross_weight, il.liquid_quantity, il.count, il.location_bin_id
+        FROM inventorylevels il
+        JOIN masterinventory mi ON il.item_id = mi.id
+        JOIN itemcategory ic    ON mi.category = ic.id
+    """
+    rows = get_data(q)
+    result = [
+        {
+            "id":              row["id"],
+            "barcode":         row["barcode"],
+            "name":            row["name"],
+            "brand":           row["brand"],
+            "category":        row["category"],
+            "gross_weight":    row["gross_weight"],
+            "liquid_quantity": row["liquid_quantity"],
+            "count":           row["count"],
+            "bin":             row["location_bin_id"],
+        }
+        for row in rows
+    ]
     return result
 
-atexit.register(_load_cell.cleanup)
+atexit.register(load_cell.cleanup)

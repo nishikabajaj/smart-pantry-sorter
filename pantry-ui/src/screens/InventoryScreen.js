@@ -40,25 +40,22 @@ export default function InventoryScreen({ onBack }) {
         <table className="inv-table">
           <thead>
             <tr>
-              <th>Item ID</th>
+              <th>Item</th>
               <th>Bin</th>
               <th style={{ textAlign: 'right' }}>Quantity</th>
             </tr>
           </thead>
           <tbody>
             {items.map((row, i) => {
-              // row shape from /api/data:
-              // [id, item_id, gross_weight, liquid_qty, count, bin_id, expiration_date]
-              const [, item_id, gross, liquid, count, bin_id] = row;
-              const qty  = gross ?? liquid ?? count ?? 0;
+              const qty  = row.gross_weight ?? row.liquid_quantity ?? row.count ?? 0;
               const pct  = Math.min(100, (qty / 1000) * 100);
-              const unit = gross != null ? 'g' : liquid != null ? 'oz' : '';
+              const unit = row.gross_weight != null ? 'g' : row.liquid_quantity != null ? 'oz' : '';
 
               return (
                 <tr key={i}>
-                  <td className="mono">{item_id}</td>
+                  <td className="mono">{row.name ?? row.id}</td>
                   <td>
-                    <span className="badge badge-amber">BIN {bin_id ?? '—'}</span>
+                    <span className="badge badge-amber">BIN {row.bin ?? '—'}</span>
                   </td>
                   <td>
                     <div className="qty-bar-wrap">
