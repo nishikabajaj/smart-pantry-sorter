@@ -47,6 +47,7 @@ def get_off_product(barcode): # Calls the OpenFoodFacts API to identify an item 
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"OpenFoodFacts request failed: {str(e)}")
 
+
 def get_master_db(barcode): # Check if an item is present in the local database's MasterInventory table; helps to avoid calling external API unecessarily
     q = "SELECT * FROM masterinventory WHERE barcode = ?"
     result = get_data(q, (barcode,))
@@ -270,6 +271,7 @@ def update_inventory(item_data, remaining_weight=None, usage=None):
     sorting.sort_item(item_id)
     print("Inventory updated!")
 
+
 def remove_inventory(item_data):
     # Extract data from DB dictionary
     # Columns: id, barcode, name, brand, category
@@ -285,6 +287,7 @@ def remove_inventory(item_data):
         
     else:
         print("Cancelled, item has not been removed from pantry")
+    
     
 def view_all_inventory():
     q = """
