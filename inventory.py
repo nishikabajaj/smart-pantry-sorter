@@ -163,7 +163,7 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
             # gross_weight column (index 2) is already populated for this item
             item_quantity_col = "gross_weight"
             print("Place the item on the scale and hold still...")
-            product_quantity = _load_cell.stable_weight_g()
+            product_quantity = load_cell.stable_weight_g()
             print(f"Measured weight: {product_quantity:.1f} g")
             
         elif existing and existing[0][3] is not None:

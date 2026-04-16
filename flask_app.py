@@ -2,11 +2,17 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import load_cell
 import inventory
+import preferences
+import recipe
 import traceback
 
 
 app = Flask(__name__)
 CORS(app)
+
+# ── One-time setup: ensure default user + seed diet flag options ──────────────
+preferences.ensure_default_user()
+preferences.seed_diet_flags()
 
 def format_item(db_row):
     if not db_row:
@@ -141,14 +147,77 @@ def api_remove():
         return jsonify({"error": str(e)}), 500
  
  
-# TODO: implement in recipe.py and call from here.
-# Should query inventorylevels, pull ingredient names, and return suggestions.
 @app.route('/api/recipes', methods=['GET'])
 def api_recipes():
-    # TODO: implement recipe.py and call it here
-    # Example: return jsonify(recipe.get_suggestions())
-    return jsonify([])   # returns empty list until recipe.py is built
+    try:
+        suggestions = recipe.get_suggestions(user_id=1, number=5)
+        return jsonify(suggestions)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
+@app.route('/api/preferences', methods=['GET'])
+def api_get_preferences():
+    """
+    Returns the full preferences state for user 1:
+    {
+      "all_diet_flags":         [{"id": 1, "flag": "vegan"}, ...],
+      "user_diet_flags":        [{"id": 2, "flag": "vegetarian"}],
+      "disliked_ingredients":   [{"id": 5, "ingredient": "cilantro"}]
+    }
+    """
+    try:
+        return jsonify({
+            "all_diet_flags":       preferences.get_all_diet_flags(),
+            "user_diet_flags":      preferences.get_user_diet_flags(user_id=1),
+            "disliked_ingredients": preferences.get_user_disliked_ingredients(user_id=1),
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+ 
+ 
+@app.route('/api/preferences/diet', methods=['POST'])
+def api_set_diet_flags():
+    """
+    Body: { "flag_ids": [1, 3, 5] }
+    Replaces the user's active diet flags.
+    """
+    flag_ids = request.json.get("flag_ids", [])
+    try:
+        preferences.set_user_diet_flags(flag_ids, user_id=1)
+        return jsonify({"ok": True})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+ 
+ 
+@app.route('/api/preferences/disliked', methods=['POST'])
+def api_add_disliked():
+    """
+    Body: { "ingredient": "cilantro" }
+    Adds one ingredient to the disliked list.
+    """
+    ingredient = (request.json.get("ingredient") or "").strip()
+    if not ingredient:
+        return jsonify({"error": "ingredient required"}), 400
+    try:
+        result = preferences.add_disliked_ingredient(ingredient, user_id=1)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+ 
+ 
+@app.route('/api/preferences/disliked/<int:ingredient_id>', methods=['DELETE'])
+def api_remove_disliked(ingredient_id):
+    """Removes one ingredient from the disliked list by its ID."""
+    try:
+        preferences.remove_disliked_ingredient(ingredient_id, user_id=1)
+        return jsonify({"ok": True})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(port=5000)

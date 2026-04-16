@@ -6,6 +6,7 @@ import AddScreen       from './screens/AddScreen';
 import UseScreen       from './screens/UseScreen';
 import RemoveScreen    from './screens/RemoveScreen';
 import InventoryScreen from './screens/InventoryScreen';
+import PreferencesScreen from './screens/PreferencesScreen';
 import RecipesScreen   from './screens/RecipesScreen';
 
 export default function App() {
@@ -19,7 +20,8 @@ export default function App() {
     use:       <UseScreen       onBack={goHome} />,
     remove:    <RemoveScreen    onBack={goHome} />,
     inventory: <InventoryScreen onBack={goHome} />,
-    recipes:   <RecipesScreen   onBack={goHome} />,
+    recipes:   <RecipesScreen   onBack={goHome} onNavigate={setScreen} />,
+    preferences: <PreferencesScreen onBack={goHome} />,
   };
 
   return (
