@@ -1,26 +1,21 @@
 import RPi.GPIO as GPIO
 import time
 
-# Pin configuration
-HALL_PIN = 17  # Change this to your chosen GPIO pin
+HALL_PIN = 18
 
-# GPIO Setup
 GPIO.setmode(GPIO.BCM)
-# Use internal pull-up resistor so the pin defaults to HIGH
 GPIO.setup(HALL_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-def magnet_detected(channel):
-    """Callback function triggered when magnet is detected."""
-    print("Magnet Detected!")
+print("Hall Effect Sensor Test - Waiting for magnet...")
 
 try:
-    print("Hall Effect Sensor Test - Waiting for magnet...")
-    # Add event detection for a FALLING edge (HIGH to LOW transition)
-    GPIO.add_event_detect(HALL_PIN, GPIO.FALLING, callback=magnet_detected, bouncetime=200)
-
-    # Keep the script running
+    prev = GPIO.input(HALL_PIN)
     while True:
-        time.sleep(1)
+        curr = GPIO.input(HALL_PIN)
+        if prev == GPIO.HIGH and curr == GPIO.LOW:  # FALLING edge
+            print("Magnet Detected!")
+        prev = curr
+        time.sleep(0.01)
 
 except KeyboardInterrupt:
     print("\nCleaning up...")
