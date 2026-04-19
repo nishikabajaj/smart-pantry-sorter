@@ -25,54 +25,23 @@ def _get_db():
 
 def _get_pantry_ingredients() -> list[str]:
     """
-    Returns a deduplicated list of ingredient names currently in the pantry.
-    Pulls from MasterInventoryIngredients → Ingredients for items that have
-    a positive inventory level, falling back to MasterInventory.name when no
-    ingredient rows exist for an item.
+    Returns a list of item names currently in the pantry with positive inventory.
+    Uses item names rather than ingredient lists so Spoonacular searches by
+    product (e.g. 'nutella') rather than sub-ingredients (e.g. 'hazelnuts').
     """
     conn = _get_db()
     try:
         cur = conn.cursor()
- 
-        # Items with a positive quantity in InventoryLevels
         cur.execute("""
-            SELECT DISTINCT il.item_id
+            SELECT DISTINCT mi.name
             FROM InventoryLevels il
+            JOIN MasterInventory mi ON mi.id = il.item_id
             WHERE
                 COALESCE(il.gross_weight, 0)    > 0
              OR COALESCE(il.liquid_quantity, 0) > 0
              OR COALESCE(il.count, 0)           > 0
         """)
-        item_ids = [r["item_id"] for r in cur.fetchall()]
- 
-        if not item_ids:
-            return []
- 
-        placeholders = ",".join("?" * len(item_ids))
- 
-        # Prefer explicit ingredient rows
-        cur.execute(f"""
-            SELECT DISTINCT ing.ingredient
-            FROM MasterInventoryIngredients mii
-            JOIN Ingredients ing ON ing.id = mii.ingredient_id
-            WHERE mii.master_inventory_id IN ({placeholders})
-        """, item_ids)
-        ingredients = [r["ingredient"] for r in cur.fetchall()]
- 
-        # Fall back to item names for items with no ingredient rows
-        cur.execute(f"""
-            SELECT mi.id, mi.name
-            FROM MasterInventory mi
-            WHERE mi.id IN ({placeholders})
-              AND mi.id NOT IN (
-                  SELECT DISTINCT master_inventory_id
-                  FROM MasterInventoryIngredients
-                  WHERE master_inventory_id IN ({placeholders})
-              )
-        """, item_ids + item_ids)
-        ingredients += [r["name"] for r in cur.fetchall() if r["name"]]
- 
-        return list(dict.fromkeys(ingredients))   # stable dedup
+        return [r["name"] for r in cur.fetchall() if r["name"]]
     finally:
         conn.close()
  
