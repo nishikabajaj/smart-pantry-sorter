@@ -50,11 +50,11 @@ c.executescript('''
     );
     CREATE TABLE IF NOT EXISTS DietFlags (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        flag TEXT NOT NULL
+        flag TEXT NOT NULL UNIQUE
     );
     CREATE TABLE IF NOT EXISTS Ingredients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ingredient TEXT NOT NULL
+        ingredient TEXT NOT NULL UNIQUE
     );
     CREATE TABLE IF NOT EXISTS User (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

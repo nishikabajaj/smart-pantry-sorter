@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { apiGet, apiPost } from '../api';
 import ScanScreen   from '../components/ScanScreen';
 import ItemCard     from '../components/ItemCard';
@@ -7,84 +7,68 @@ import MotorSorting from '../components/MotorSorting';
 import ResultScreen from '../components/ResultScreen';
 import BackButton   from '../components/BackButton';
 
-// stages: scan → confirm → weighing → sorting → done
+// stages: scan → confirm → weighing → confirmWeight → sorting → done
+//                        ↘ (no scale needed)         ↗
 export default function AddScreen({ onBack }) {
   const [stage, setStage]           = useState('scan');
   const [scanResult, setScanResult] = useState(null);
   const [weight, setWeight]         = useState(null);
   const [result, setResult]         = useState(null);
 
-  // useRef for the cancellation flag so no mutable variable is ever
-  // closed over inside a loop body — satisfies no-loop-func.
-  const cancelledRef = useRef(false);
-
-  // Poll /api/weight on an interval while in the weighing stage.
-  // handleTick is a named async function called by setInterval — no
-  // functions are declared inside a loop, so no-loop-func is satisfied.
-  useEffect(() => {
-    if (stage !== 'weighing') return;
-
-    cancelledRef.current = false;
-
-    async function handleTick() {
-      if (cancelledRef.current) return;
-      try {
-        const data = await apiGet('/api/weight');
-        if (cancelledRef.current) return;
-        setWeight(data.grams);
-        if (data.stable) {
-          cancelledRef.current = true;
-          clearInterval(intervalId); // eslint-disable-line no-use-before-define
-          setStage('sorting');
-          try {
-            await apiPost('/api/add', {
-              item_data: scanResult?.item_data,
-              new:       scanResult?.new,
-              weight_g:  data.grams,
-            });
-            setResult({ success: true, msg: `Item added — ${data.grams.toFixed(1)}g recorded.` });
-          } catch {
-            setResult({ success: false, msg: 'Failed to add item. Check server.' });
-          }
-          setStage('done');
-        }
-      } catch {
-        // /api/weight not yet implemented — dev simulation
-        if (cancelledRef.current) return;
-        setWeight(prev => {
-          const next = parseFloat(((prev ?? 0) + Math.random() * 40).toFixed(1));
-          if (next > 220) {
-            cancelledRef.current = true;
-            clearInterval(intervalId); // eslint-disable-line no-use-before-define
-            setResult({ success: true, msg: `Item added — ${next}g recorded.` });
-            setTimeout(() => setStage('done'), 1200);
-          }
-          return next;
-        });
-      }
-    }
-
-    const intervalId = setInterval(handleTick, 400);
-
-    return () => {
-      cancelledRef.current = true;
-      clearInterval(intervalId);
-    };
-  }, [stage, scanResult]);
-
   const needsWeighing = scanResult?.item_data?.product_quantity_unit === 'g';
 
-  function onConfirm() {
+  // ── Confirm item ───────────────────────────────────────────────────────────
+  async function onConfirm() {
     if (needsWeighing) {
+      // Show spinner, do a single scale read, then let user confirm the value
       setStage('weighing');
+      try {
+        const data = await apiGet('/api/weight');
+        setWeight(data.grams);
+        setStage('confirmWeight');
+      } catch {
+        setResult({ success: false, msg: 'Scale read failed. Check hardware.' });
+        setStage('done');
+      }
     } else {
+      // No scale needed — add and sort immediately
       setStage('sorting');
-      apiPost('/api/add', { item_data: scanResult.item_data, new: scanResult.new })
-        .then(()   => setResult({ success: true,  msg: 'Item added and sorted.' }))
-        .catch(()  => setResult({ success: false, msg: 'Failed to add item.' }))
-        .finally(() => setStage('done'));
+      try {
+        await apiPost('/api/add', {
+          item_data: scanResult.item_data,
+          new:       scanResult.new,
+        });
+        setResult({ success: true, msg: 'Item added and sorted.' });
+      } catch {
+        setResult({ success: false, msg: 'Failed to add item.' });
+      }
+      setStage('done');
     }
   }
+
+  // ── Confirm weight reading ─────────────────────────────────────────────────
+  async function onConfirmWeight() {
+    setStage('sorting');
+    try {
+      await apiPost('/api/add', {
+        item_data: scanResult?.item_data,
+        new:       scanResult?.new,
+        weight_g:  weight,
+      });
+      setResult({ success: true, msg: `Item added — ${weight.toFixed(1)}g recorded.` });
+    } catch {
+      setResult({ success: false, msg: 'Failed to add item. Check server.' });
+    }
+    setStage('done');
+  }
+
+  // ── Re-weigh: go back to confirm so onConfirm re-triggers a fresh read ────
+  function onReweigh() {
+    setWeight(null);
+    setStage('confirm');
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   if (stage === 'scan') return (
     <ScanScreen
@@ -103,7 +87,7 @@ export default function AddScreen({ onBack }) {
         <div className="banner info">New item — will be registered in the database.</div>
       )}
       {needsWeighing && (
-        <div className="banner info">Place item on the scale when prompted after confirming.</div>
+        <div className="banner info">Place item on the scale before confirming.</div>
       )}
       <button className="btn btn-primary" onClick={onConfirm}>
         Confirm &amp; {needsWeighing ? 'Weigh' : 'Add to Pantry'}
@@ -114,8 +98,19 @@ export default function AddScreen({ onBack }) {
 
   if (stage === 'weighing') return (
     <div className="screen">
-      <div className="section-label">Measuring Weight</div>
+      <div className="section-label">Reading Scale…</div>
       <ScaleReading weight={weight} />
+    </div>
+  );
+
+  if (stage === 'confirmWeight') return (
+    <div className="screen">
+      <div className="section-label">Confirm Weight</div>
+      <ScaleReading weight={weight} />
+      <button className="btn btn-primary" onClick={onConfirmWeight}>
+        Confirm {weight?.toFixed(1)}g &amp; Sort
+      </button>
+      <button className="btn" onClick={onReweigh}>Re-weigh</button>
     </div>
   );
 

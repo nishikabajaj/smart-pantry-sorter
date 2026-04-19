@@ -144,6 +144,7 @@ def api_remove():
         inventory.remove_inventory(item_data)
         return jsonify({"ok": True})
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
  
  

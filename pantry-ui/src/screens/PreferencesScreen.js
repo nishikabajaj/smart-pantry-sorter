@@ -14,7 +14,7 @@ export default function PreferencesScreen({ onBack }) {
   const [disliked, setDisliked]       = useState([]);   // [{id, ingredient}]
   const [newIngredient, setNewIngredient] = useState('');
 
-  // ── Load ───────────────────────────────────────────────────────────────────
+  // Load all diet flags
   useEffect(() => {
     apiGet('/api/preferences')
       .then(data => {
@@ -26,7 +26,7 @@ export default function PreferencesScreen({ onBack }) {
       .finally(() => setLoading(false));
   }, []);
 
-  // ── Diet flag toggle ───────────────────────────────────────────────────────
+  //  Diet flag toggle
   function toggleFlag(id) {
     setActiveIds(prev => {
       const next = new Set(prev);
@@ -49,7 +49,7 @@ export default function PreferencesScreen({ onBack }) {
     }
   }
 
-  // ── Disliked ingredients ───────────────────────────────────────────────────
+  //  Disliked ingredients
   async function addIngredient() {
     const val = newIngredient.trim();
     if (!val) return;
@@ -87,7 +87,7 @@ export default function PreferencesScreen({ onBack }) {
     }
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  //  Render 
   if (loading) return (
     <div className="screen">
       <BackButton onClick={onBack} />
@@ -105,7 +105,7 @@ export default function PreferencesScreen({ onBack }) {
 
       {/* ── Diet flags ─────────────────────────────────────────────────────── */}
       <div className="section-label" style={{ marginTop: 8 }}>Diet Flags</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
         {allFlags.map(f => (
           <button
             key={f.id}
@@ -165,7 +165,7 @@ export default function PreferencesScreen({ onBack }) {
       </div>
 
       <label className="input-label">Add ingredient to avoid</label>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <input
           className="input-field"
           type="text"
@@ -173,12 +173,13 @@ export default function PreferencesScreen({ onBack }) {
           value={newIngredient}
           onChange={e => setNewIngredient(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addIngredient()}
-          style={{ flex: 1 }}
+          style={{ flex: 3 }}
         />
         <button
           className="btn btn-primary"
           onClick={addIngredient}
           disabled={saving || !newIngredient.trim()}
+          style={{ flex: 1 }}
         >
           Add
         </button>

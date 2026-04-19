@@ -4,6 +4,9 @@
 # Return ranked list
 
 import os, sqlite3, requests, traceback
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'pantry.db')
 

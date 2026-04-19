@@ -233,60 +233,16 @@ def update_inventory(item_data, remaining_weight=None, usage=None):
     )
     sorting.sort_item(item_id)
     print("Inventory updated!")
-    item = item_data[0]
-    item_id = item[0]
-
-    inv_level_rows = get_inv_level_db(item_id)
-    if not inv_level_rows:
-        raise ValueError("This item needs to be added to the pantry first!")
-
-    inv_level       = inv_level_rows[0]
-    gross_weight    = inv_level[1]
-    liquid_quantity = inv_level[2]
-    count           = inv_level[3]
-
-    if gross_weight is not None:
-        item_quantity_col = "gross_weight"
-        if remaining_weight is not None:
-            new_value = remaining_weight
-        else:
-            # fallback to scale if called from CLI
-            print("Place the item back on the scale...")
-            new_value = load_cell.stable_weight_g()
-
-    elif liquid_quantity is not None:
-        item_quantity_col = "liquid_quantity"
-        used = usage if usage is not None else float(input("Amount used (oz): "))
-        new_value = (liquid_quantity or 0) - used
-
-    else:
-        item_quantity_col = "count"
-        used = int(usage) if usage is not None else int(input("Units used: "))
-        new_value = (count or 0) - used
-
-    execute_query(
-        f"UPDATE inventorylevels SET {item_quantity_col} = ? WHERE item_id = ?",
-        (new_value, item_id)
-    )
-    sorting.sort_item(item_id)
-    print("Inventory updated!")
 
 
 def remove_inventory(item_data):
     # Extract data from DB dictionary
-    # Columns: id, barcode, name, brand, category
-    item = item_data[0]
-    item_id = item[0]
-    name = item[2]
+    item_id = item_data["id"]
+    name    = item_data["name"]
     
-    confirmation = input(f"Confirm deletion of {name}. Input y/n")
-    if confirmation.lower() == "y":
-        q = "DELETE FROM inventorylevels WHERE item_id = ?"
-        execute_query(q, (item_id,))
-        print("Item deleted from pantry")
-        
-    else:
-        print("Cancelled, item has not been removed from pantry")
+    q = "DELETE FROM inventorylevels WHERE item_id = ?"
+    execute_query(q, (item_id,))
+    print("Item {name} deleted from pantry")
     
     
 def view_all_inventory():
