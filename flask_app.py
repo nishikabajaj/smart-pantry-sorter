@@ -5,6 +5,7 @@ import inventory
 import preferences
 import recipe
 import traceback
+import sorting
 
 
 app = Flask(__name__)
@@ -215,6 +216,18 @@ def api_remove_disliked(ingredient_id):
     """Removes one ingredient from the disliked list by its ID."""
     try:
         preferences.remove_disliked_ingredient(ingredient_id, user_id=1)
+        return jsonify({"ok": True})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/navigate', methods=['POST'])
+def api_navigate():
+    bin_id = request.json.get("bin_id")
+    if not bin_id:
+        return jsonify({"error": "No bin_id provided"}), 400
+    try:
+        sorting.sort_item_to_bin(bin_id)
         return jsonify({"ok": True})
     except Exception as e:
         traceback.print_exc()

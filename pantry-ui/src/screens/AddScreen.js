@@ -8,19 +8,23 @@ import ResultScreen from '../components/ResultScreen';
 import BackButton   from '../components/BackButton';
 
 // stages: scan → confirm → weighing → confirmWeight → sorting → done
-//                        ↘ (no scale needed)         ↗
+//                        ↘ confirmCount ↗
+//                        ↘ confirmLiquid ↗
 export default function AddScreen({ onBack }) {
-  const [stage, setStage]           = useState('scan');
+  const [stage, setStage]       = useState('scan');
   const [scanResult, setScanResult] = useState(null);
-  const [weight, setWeight]         = useState(null);
-  const [result, setResult]         = useState(null);
+  const [weight, setWeight]     = useState(null);
+  const [quantity, setQuantity] = useState('');
+  const [result, setResult]     = useState(null);
 
-  const needsWeighing = scanResult?.item_data?.product_quantity_unit === 'g';
+  const unit = scanResult?.item_data?.product_quantity_unit;
+  const needsWeighing = unit === 'g';
+  const needsCount    = unit === 'units' || !unit;
+  const needsLiquid   = unit === 'oz';
 
-  // ── Confirm item ───────────────────────────────────────────────────────────
+  // ── Confirm item ────────────────────────────────────────────────────────────
   async function onConfirm() {
     if (needsWeighing) {
-      // Show spinner, do a single scale read, then let user confirm the value
       setStage('weighing');
       try {
         const data = await apiGet('/api/weight');
@@ -30,46 +34,60 @@ export default function AddScreen({ onBack }) {
         setResult({ success: false, msg: 'Scale read failed. Check hardware.' });
         setStage('done');
       }
+    } else if (needsCount) {
+      setQuantity('');
+      setStage('confirmCount');
+    } else if (needsLiquid) {
+      setQuantity('');
+      setStage('confirmLiquid');
     } else {
-      // No scale needed — add and sort immediately
-      setStage('sorting');
-      try {
-        await apiPost('/api/add', {
-          item_data: scanResult.item_data,
-          new:       scanResult.new,
-        });
-        setResult({ success: true, msg: 'Item added and sorted.' });
-      } catch {
-        setResult({ success: false, msg: 'Failed to add item.' });
-      }
-      setStage('done');
+      await submitAdd({});
     }
   }
 
-  // ── Confirm weight reading ─────────────────────────────────────────────────
-  async function onConfirmWeight() {
+  // ── Shared add + sort ───────────────────────────────────────────────────────
+  async function submitAdd(extras) {
     setStage('sorting');
     try {
       await apiPost('/api/add', {
         item_data: scanResult?.item_data,
         new:       scanResult?.new,
-        weight_g:  weight,
+        ...extras,
       });
-      setResult({ success: true, msg: `Item added — ${weight.toFixed(1)}g recorded.` });
+      setResult({ success: true, msg: extras.weight_g
+        ? `Item added — ${extras.weight_g.toFixed(1)}g recorded.`
+        : 'Item added and sorted.' });
     } catch {
       setResult({ success: false, msg: 'Failed to add item. Check server.' });
     }
     setStage('done');
   }
 
-  // ── Re-weigh: go back to confirm so onConfirm re-triggers a fresh read ────
+  // ── Confirm weight ──────────────────────────────────────────────────────────
+  async function onConfirmWeight() {
+    await submitAdd({ weight_g: weight });
+  }
+
+  // ── Confirm count ───────────────────────────────────────────────────────────
+  async function onConfirmCount() {
+    const qty = parseInt(quantity);
+    if (!qty || qty < 1) return;
+    await submitAdd({ quantity_count: qty });
+  }
+
+  // ── Confirm liquid ──────────────────────────────────────────────────────────
+  async function onConfirmLiquid() {
+    const qty = parseFloat(quantity);
+    if (!qty || qty <= 0) return;
+    await submitAdd({ quantity_oz: qty });
+  }
+
   function onReweigh() {
     setWeight(null);
     setStage('confirm');
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
+  // ── Render ──────────────────────────────────────────────────────────────────
   if (stage === 'scan') return (
     <ScanScreen
       actionLabel="Add Item"
@@ -86,11 +104,11 @@ export default function AddScreen({ onBack }) {
       {scanResult?.new && (
         <div className="banner info">New item — will be registered in the database.</div>
       )}
-      {needsWeighing && (
-        <div className="banner info">Place item on the scale before confirming.</div>
-      )}
+      {needsWeighing && <div className="banner info">Place item on the scale before confirming.</div>}
+      {needsCount    && <div className="banner info">You'll be asked for the count next.</div>}
+      {needsLiquid   && <div className="banner info">You'll be asked for the volume next.</div>}
       <button className="btn btn-primary" onClick={onConfirm}>
-        Confirm &amp; {needsWeighing ? 'Weigh' : 'Add to Pantry'}
+        Confirm &amp; {needsWeighing ? 'Weigh' : needsCount ? 'Enter Count' : needsLiquid ? 'Enter Volume' : 'Add to Pantry'}
       </button>
       <button className="btn" onClick={() => setStage('scan')}>Re-scan</button>
     </div>
@@ -111,6 +129,51 @@ export default function AddScreen({ onBack }) {
         Confirm {weight?.toFixed(1)}g &amp; Sort
       </button>
       <button className="btn" onClick={onReweigh}>Re-weigh</button>
+    </div>
+  );
+
+  if (stage === 'confirmCount') return (
+    <div className="screen">
+      <BackButton onClick={() => setStage('confirm')} />
+      <div className="section-label">Enter Count</div>
+      <div className="banner info">How many units are you adding?</div>
+      <input
+        className="scan-input"
+        type="number"
+        inputMode="numeric"
+        min="1"
+        placeholder="e.g. 3"
+        value={quantity}
+        onChange={e => setQuantity(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && onConfirmCount()}
+        autoFocus
+      />
+      <button className="btn btn-primary" onClick={onConfirmCount} disabled={!quantity || parseInt(quantity) < 1}>
+        Confirm &amp; Sort
+      </button>
+    </div>
+  );
+
+  if (stage === 'confirmLiquid') return (
+    <div className="screen">
+      <BackButton onClick={() => setStage('confirm')} />
+      <div className="section-label">Enter Volume</div>
+      <div className="banner info">How many oz are you adding?</div>
+      <input
+        className="scan-input"
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step="0.1"
+        placeholder="e.g. 12.5"
+        value={quantity}
+        onChange={e => setQuantity(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && onConfirmLiquid()}
+        autoFocus
+      />
+      <button className="btn btn-primary" onClick={onConfirmLiquid} disabled={!quantity || parseFloat(quantity) <= 0}>
+        Confirm &amp; Sort
+      </button>
     </div>
   );
 

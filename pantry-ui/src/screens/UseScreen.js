@@ -1,112 +1,100 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { apiGet, apiPost } from '../api';
-import ScanScreen   from '../components/ScanScreen';
-import ItemCard     from '../components/ItemCard';
-import ScaleReading from '../components/ScaleReading';
-import ResultScreen from '../components/ResultScreen';
-import BackButton   from '../components/BackButton';
+import InventoryGrid from '../components/InventoryGrid';
+import ItemCard      from '../components/ItemCard';
+import ScaleReading  from '../components/ScaleReading';
+import BinNavigation from '../components/MotorSorting';
+import ResultScreen  from '../components/ResultScreen';
+import BackButton    from '../components/BackButton';
 
-// stages: scan → confirm → weighing → done
+// stages: select → navigating → confirm → weighing → confirmWeight → done
 export default function UseScreen({ onBack }) {
-  const [stage, setStage]           = useState('scan');
-  const [scanResult, setScanResult] = useState(null);
-  const [weight, setWeight]         = useState(null);
-  const [manualQty, setManualQty]   = useState('');
-  const [result, setResult]         = useState(null);
+  const [stage, setStage]             = useState('select');
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [weight, setWeight]           = useState(null);
+  const [manualQty, setManualQty]     = useState('');
+  const [result, setResult]           = useState(null);
 
-  const cancelledRef = useRef(false);
+  const isWeighed = selectedItem?.gross_weight != null;
 
-  const item      = scanResult?.item_data;
-  const isWeighed = item?.product_quantity_unit === 'g';
+  function toItemCardShape(item) {
+    const qty  = item.gross_weight ?? item.liquid_quantity ?? item.count;
+    const unit = item.gross_weight != null ? 'g' : item.liquid_quantity != null ? 'oz' : 'units';
+    return { ...item, quantity: qty, unit, bin_id: item.bin };
+  }
 
-  // Poll /api/weight on an interval while in the weighing stage.
-  // handleTick is declared outside setInterval so no functions are
-  // created inside a loop body — satisfies no-loop-func.
+  // ── Navigate motor to bin ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (stage !== 'navigating' || !selectedItem) return;
+    apiPost('/api/navigate', { bin_id: selectedItem.bin })
+      .then(() => setStage('confirm'))
+      .catch(() => setStage('confirm'));
+  }, [stage, selectedItem]);
+
+  // ── One-shot scale read ───────────────────────────────────────────────────
   useEffect(() => {
     if (stage !== 'weighing') return;
-
-    cancelledRef.current = false;
-
-    async function handleTick() {
-      if (cancelledRef.current) return;
-      try {
-        const data = await apiGet('/api/weight');
-        if (cancelledRef.current) return;
+    apiGet('/api/weight')
+      .then(data => {
         setWeight(data.grams);
-        if (data.stable) {
-          cancelledRef.current = true;
-          clearInterval(intervalId); // eslint-disable-line no-use-before-define
-          try {
-            await apiPost('/api/update', { item_data: item, remaining_weight: data.grams });
-            setResult({ success: true, msg: `Usage recorded. ${data.grams.toFixed(1)}g remaining.` });
-          } catch {
-            setResult({ success: false, msg: 'Failed to update inventory.' });
-          }
-          setStage('done');
-        }
-      } catch {
-        // /api/weight not yet implemented — dev simulation
-        if (cancelledRef.current) return;
-        setWeight(prev => {
-          const next = parseFloat((Math.max(0, (prev ?? item?.quantity ?? 400) - Math.random() * 25)).toFixed(1));
-          if (next < 150) {
-            cancelledRef.current = true;
-            clearInterval(intervalId); // eslint-disable-line no-use-before-define
-            setResult({ success: true, msg: `Usage recorded. ${next}g remaining.` });
-            setTimeout(() => setStage('done'), 1000);
-          }
-          return next;
-        });
-      }
+        setStage('confirmWeight');
+      })
+      .catch(() => {
+        setResult({ success: false, msg: 'Scale read failed. Check hardware.' });
+        setStage('done');
+      });
+  }, [stage]);
+
+  async function onConfirmWeight() {
+    try {
+      await apiPost('/api/update', {
+        item_data: { barcode: selectedItem.barcode },
+        remaining_weight: weight,
+      });
+      setResult({ success: true, msg: `Usage recorded. ${weight.toFixed(1)}g remaining.` });
+    } catch {
+      setResult({ success: false, msg: 'Failed to update inventory.' });
     }
-
-    const intervalId = setInterval(handleTick, 400);
-
-    return () => {
-      cancelledRef.current = true;
-      clearInterval(intervalId);
-    };
-  }, [stage, item]);
+    setStage('done');
+  }
 
   async function submitManual() {
     const qty = parseFloat(manualQty);
     if (isNaN(qty) || qty <= 0) return;
     try {
-      await apiPost('/api/update', { item_data: item, usage: qty });
+      await apiPost('/api/update', {
+        item_data: { barcode: selectedItem.barcode },
+        usage: qty,
+      });
       setResult({ success: true, msg: 'Inventory updated.' });
-      setStage('done');
     } catch {
       setResult({ success: false, msg: 'Failed to update inventory.' });
-      setStage('done');
     }
+    setStage('done');
   }
 
-  if (stage === 'scan') return (
-    <ScanScreen
-      actionLabel="Use Item"
-      onBack={onBack}
-      onScanned={r => { setScanResult(r); setStage('confirm'); }}
-    />
+  if (stage === 'select') return (
+    <div className="screen">
+      <BackButton onClick={onBack} />
+      <div className="section-label">Select Item to Use</div>
+      <InventoryGrid onSelect={item => { setSelectedItem(item); setStage('navigating'); }} />
+    </div>
+  );
+
+  if (stage === 'navigating') return (
+    <BinNavigation binId={selectedItem?.bin} />
   );
 
   if (stage === 'confirm') return (
     <div className="screen">
-      <BackButton onClick={() => setStage('scan')} />
+      <BackButton onClick={() => setStage('select')} />
       <div className="section-label">Record Usage</div>
-      <ItemCard item={item} />
-
-      {item?.current_quantity != null && (
-        <div className="banner info">
-          Current stock: <strong>{item.current_quantity}{item.product_quantity_unit}</strong>
-        </div>
-      )}
-
+      <ItemCard item={toItemCardShape(selectedItem)} />
       {isWeighed ? (
         <>
           <button className="btn btn-primary" onClick={() => setStage('weighing')}>
             Weigh Remaining
           </button>
-
           <div className="section-label" style={{ marginTop: 16 }}>Or enter manually</div>
           <label className="input-label">Amount used (g)</label>
           <input
@@ -124,7 +112,7 @@ export default function UseScreen({ onBack }) {
       ) : (
         <>
           <label className="input-label">
-            {item?.product_quantity_unit === 'oz' ? 'Amount used (oz)' : 'Units used'}
+            {selectedItem?.liquid_quantity != null ? 'Amount used (oz)' : 'Units used'}
           </label>
           <input
             className="input-field"
@@ -139,15 +127,28 @@ export default function UseScreen({ onBack }) {
           </button>
         </>
       )}
-
-      <button className="btn" onClick={() => setStage('scan')}>Re-scan</button>
+      <button className="btn" onClick={() => setStage('select')}>Back to List</button>
     </div>
   );
 
   if (stage === 'weighing') return (
     <div className="screen">
-      <div className="section-label">Measuring Remaining</div>
+      <div className="section-label">Reading Scale…</div>
       <ScaleReading weight={weight} />
+    </div>
+  );
+
+  if (stage === 'confirmWeight') return (
+    <div className="screen">
+      <BackButton onClick={() => setStage('confirm')} />
+      <div className="section-label">Confirm Weight</div>
+      <ScaleReading weight={weight} />
+      <button className="btn btn-primary" onClick={onConfirmWeight}>
+        Confirm {weight?.toFixed(1)}g remaining
+      </button>
+      <button className="btn" onClick={() => { setWeight(null); setStage('weighing'); }}>
+        Re-weigh
+      </button>
     </div>
   );
 
@@ -160,4 +161,3 @@ export default function UseScreen({ onBack }) {
     />
   );
 }
-

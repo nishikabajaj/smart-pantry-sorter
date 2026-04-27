@@ -169,12 +169,12 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         elif existing and existing[0][3] is not None:
             # liquid_quantity column (index 3) is populated
             item_quantity_col = "liquid_quantity"
-            product_quantity = float(input("Enter liquid quantity (oz): "))
+            product_quantity = float(product_quantity) if product_quantity else 0
             
         else:
             # Countable item (no weight/volume tracked)
             item_quantity_col = "count"
-            product_quantity = int(input("Enter count to add: "))
+            product_quantity = int(product_quantity) if product_quantity else 1
     
     inv_levels_q = (
     f"INSERT OR IGNORE INTO inventorylevels (item_id, {item_quantity_col}, location_bin_id) "
@@ -236,9 +236,16 @@ def update_inventory(item_data, remaining_weight=None, usage=None):
 
 
 def remove_inventory(item_data):
-    # Extract data from DB dictionary
-    item_id = item_data["id"]
-    name    = item_data["name"]
+    barcode = item_data.get("barcode") or item_data.get("code")
+    if not barcode:
+        raise ValueError("No barcode in item_data")
+
+    db_row = get_master_db(barcode)
+    if not db_row:
+        raise ValueError(f"Item with barcode {barcode} not found in database")
+
+    item_id = db_row[0][0]
+    name    = db_row[0][2]
     
     q = "DELETE FROM inventorylevels WHERE item_id = ?"
     execute_query(q, (item_id,))

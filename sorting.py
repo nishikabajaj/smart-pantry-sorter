@@ -12,7 +12,7 @@ NUM_BINS = 4  # bins 0-3 (bin_id 1-4 in DB)
 
 # Ramp config
 STEP_DELAY_START = 0.05   # slow start (high torque)
-STEP_DELAY_MIN   = 0.005  # full speed
+STEP_DELAY_MIN   = 0.01  # full speed
 ACCEL_STEPS      = 200    # steps to reach full speed
 
 # Safety limit — max steps per bin transit before giving up.
@@ -26,11 +26,15 @@ _current_bin_index = 1
 def setup():
     if GPIO.getmode() is None:
         GPIO.setmode(GPIO.BCM)
-    GPIO.setup(STEP,     GPIO.OUT, initial=GPIO.LOW)
-    GPIO.setup(DIR,      GPIO.OUT, initial=GPIO.HIGH)
-    GPIO.setup(EN,       GPIO.OUT, initial=GPIO.LOW)   # LOW = enabled on A4988
-    GPIO.setup(HALL_PIN, GPIO.IN,  pull_up_down=GPIO.PUD_UP)
-    GPIO.output(EN, GPIO.LOW)
+    GPIO.setup(STEP,     GPIO.OUT)
+    GPIO.setup(DIR,      GPIO.OUT)
+    GPIO.setup(EN,       GPIO.OUT)
+    GPIO.setup(HALL_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    # Explicitly drive all output pins to known state every time
+    GPIO.output(STEP, GPIO.LOW)
+    GPIO.output(DIR,  GPIO.HIGH)  # CW direction
+    GPIO.output(EN,   GPIO.LOW)   # enable driver
+    time.sleep(0.002)             # let DIR settle before any stepping
 
 
 def cleanup():
@@ -106,7 +110,8 @@ def rotate_to_bin_index(target_index: int) -> bool:
         return True
 
     print(f"Rotating {pulses_needed} bin(s) to reach index {target_index}.")
-    GPIO.output(DIR, GPIO.LOW)
+    GPIO.output(DIR, GPIO.HIGH)
+    time.sleep(0.001)
 
     # Shared acceleration state across all pulses so ramp is continuous
     accel_state = {
@@ -184,6 +189,20 @@ def sort_item(item_id: int) -> bool:
         print(f"Failed to reach carousel index {target_index}.")
     return ok
 
+def sort_item_to_bin(bin_id: int) -> bool:
+    """
+    Rotate the carousel directly to a known bin_id.
+    Called by /api/navigate when the user selects an item from the inventory list.
+    """
+    setup()
+    target_index = bin_id_to_index(bin_id)
+    print(f"Navigating to bin_id {bin_id} -> carousel index {target_index}")
+    ok = rotate_to_bin_index(target_index)
+    if ok:
+        print(f"Carousel at bin_id {bin_id} successfully.")
+    else:
+        print(f"Failed to reach carousel index {target_index}.")
+    return ok
 
 # CLI
 
