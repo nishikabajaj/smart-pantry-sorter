@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import load_cell
 import inventory
@@ -8,7 +8,7 @@ import traceback
 import sorting
 
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='build', static_url_path='')
 CORS(app)
 
 # ── One-time setup: ensure default user + seed diet flag options ──────────────
@@ -39,6 +39,9 @@ def format_item(db_row):
         "product_quantity_unit": unit,
     }
 
+@app.route('/')
+def index():
+    return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/api/data', methods=['GET', 'POST'])
 def api_data():
