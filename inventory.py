@@ -88,7 +88,7 @@ def add_inventory(item_data, new): # Add an item to the inventory and its respec
         barcode = item_data["code"]
         name = item_data["product_name"]
         brand = item_data["brands"][0]
-        category = item_data["categories"][0]
+        category = item_data["categories"][-1]
         product_quantity = item_data["product_quantity"]
         product_quantity_unit = item_data["product_quantity_unit"]
         

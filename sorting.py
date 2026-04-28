@@ -12,29 +12,33 @@ NUM_BINS = 4  # bins 0-3 (bin_id 1-4 in DB)
 
 # Ramp config
 STEP_DELAY_START = 0.05   # slow start (high torque)
-STEP_DELAY_MIN   = 0.01  # full speed
+STEP_DELAY_MIN   = 0.005  # full speed
 ACCEL_STEPS      = 200    # steps to reach full speed
 
 # Safety limit — max steps per bin transit before giving up.
 # Prevents infinite spinning
 MAX_STEPS_PER_BIN = 300
 
+# Direction detection thresholds.
+# A hall pulse is considered CCW if EITHER condition is met:
+#   - it arrived in fewer steps than CCW_STEP_THRESHOLD (motor barely moved)
+#   - it arrived in less than CCW_TIME_THRESHOLD seconds (magnet flew by fast)
+# Tune CCW_STEP_THRESHOLD between your typical CW step-count and CCW step-count.
+CCW_STEP_THRESHOLD = 15
+CCW_TIME_THRESHOLD = 3.0  # seconds
+
 # For the demo, bin 0 is assumed to be facing the user at startup.
-_current_bin_index = 1
+_current_bin_index = 0
 
 
 def setup():
     if GPIO.getmode() is None:
         GPIO.setmode(GPIO.BCM)
-    GPIO.setup(STEP,     GPIO.OUT)
-    GPIO.setup(DIR,      GPIO.OUT)
-    GPIO.setup(EN,       GPIO.OUT)
-    GPIO.setup(HALL_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    # Explicitly drive all output pins to known state every time
-    GPIO.output(STEP, GPIO.LOW)
-    GPIO.output(DIR,  GPIO.HIGH)  # CW direction
-    GPIO.output(EN,   GPIO.LOW)   # enable driver
-    time.sleep(0.002)             # let DIR settle before any stepping
+    GPIO.setup(STEP,     GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(DIR,      GPIO.OUT, initial=GPIO.HIGH)
+    GPIO.setup(EN,       GPIO.OUT, initial=GPIO.LOW)   # LOW = enabled on A4988
+    GPIO.setup(HALL_PIN, GPIO.IN,  pull_up_down=GPIO.PUD_UP)
+    GPIO.output(EN, GPIO.LOW)
 
 
 def cleanup():
@@ -58,16 +62,23 @@ def _step_once(delay: float):
     time.sleep(delay)
 
 
-def _wait_for_hall_pulse(accel_state: dict) -> bool:
+def _wait_for_hall_pulse(accel_state: dict) -> dict:
     """
     Step the motor until the hall sensor fires (LOW), then step past it
-    until it releases (HIGH again) to avoid re-triggering on the same magnet.
-    Uses shared accel_state dict so ramp continues smoothly across multiple
-    bin transits.
-    Returns True if the pulse was detected, False if MAX_STEPS_PER_BIN exceeded.
+    until it releases (HIGH again).
+
+    Counts how many steps were taken before the sensor fired. A low count
+    means the magnet arrived quickly — indicating the motor is actually
+    spinning CCW (opposite to the commanded direction).
+
+    Returns a dict:
+        {
+          'detected': bool,   # False if MAX_STEPS_PER_BIN exceeded
+          'ccw':      bool,   # True if pulse arrived suspiciously fast (CCW)
+        }
     """
-    steps = 0
-    OVERSHOOT_STEPS = 10  # tune up/down as needed
+    steps_before_trigger = 0
+    pulse_start_time = time.time()
 
     # Step until sensor fires
     while not hall_detected():
@@ -78,28 +89,52 @@ def _wait_for_hall_pulse(accel_state: dict) -> bool:
                 accel_state['delay'] - accel_state['increment']
             )
         accel_state['count'] += 1
-        steps += 1
-        if steps > MAX_STEPS_PER_BIN:
+        steps_before_trigger += 1
+        if steps_before_trigger > MAX_STEPS_PER_BIN:
             print("Hall sensor not detected — exceeded MAX_STEPS_PER_BIN.")
-            return False
+            return {'detected': False, 'ccw': False}
 
-    # Step past the magnet so sensor releases before next transit
+    elapsed = time.time() - pulse_start_time
+
+    # Classify direction: CCW if the magnet arrived suspiciously fast,
+    # either by step count OR by wall-clock time (whichever triggers first)
+    fast_by_steps = steps_before_trigger < CCW_STEP_THRESHOLD
+    fast_by_time  = elapsed < CCW_TIME_THRESHOLD
+    is_ccw = fast_by_steps or fast_by_time
+
+    if is_ccw:
+        reasons = []
+        if fast_by_steps: reasons.append(f"{steps_before_trigger} steps")
+        if fast_by_time:  reasons.append(f"{elapsed:.2f}s")
+        print(f"  [direction] Fast pulse ({', '.join(reasons)}) — detected CCW motion.")
+    else:
+        print(f"  [direction] Normal pulse ({steps_before_trigger} steps, {elapsed:.2f}s) — confirmed CW motion.")
+
+    # Step past the magnet so sensor releases before next transit.
+    # Skip overshoot when CCW: the bin is already past flush, extra steps
+    # would push it further in the wrong direction.
+    overshoot = 0 if is_ccw else 10
+
     while hall_detected():
         _step_once(accel_state['delay'])
         accel_state['count'] += 1
-        
-    # Extra steps to nudge bin flush to the user-facing position
-    for _ in range(OVERSHOOT_STEPS):
+
+    for _ in range(overshoot):
         _step_once(accel_state['delay'])
         accel_state['count'] += 1
 
-    return True
+    return {'detected': True, 'ccw': is_ccw}
 
 
 def rotate_to_bin_index(target_index: int) -> bool:
     """
-    Rotate the carousel forward (DIR=HIGH) by counting hall sensor pulses.
-    Each pulse = passing one bin. Stops after the required number of pulses.
+    Rotate the carousel forward (DIR=LOW) by counting hall sensor pulses.
+    Each pulse = passing one bin.
+
+    After each pulse, direction is inferred from pulse timing:
+    - CW  → bin index advances forward as expected
+    - CCW → bin index retreats instead; target recalculated accordingly
+
     Returns True if the move completed successfully.
     """
     global _current_bin_index
@@ -110,8 +145,7 @@ def rotate_to_bin_index(target_index: int) -> bool:
         return True
 
     print(f"Rotating {pulses_needed} bin(s) to reach index {target_index}.")
-    GPIO.output(DIR, GPIO.HIGH)
-    time.sleep(0.001)
+    GPIO.output(DIR, GPIO.LOW)
 
     # Shared acceleration state across all pulses so ramp is continuous
     accel_state = {
@@ -120,13 +154,31 @@ def rotate_to_bin_index(target_index: int) -> bool:
         'count':     0,
     }
 
-    for pulse in range(pulses_needed):
-        ok = _wait_for_hall_pulse(accel_state)
-        if not ok:
-            print(f"Failed on pulse {pulse + 1} of {pulses_needed}.")
+    # Track remaining pulses dynamically — CCW motion adds to the deficit
+    # rather than subtracting from it.
+    pulses_remaining = pulses_needed
+
+    while pulses_remaining > 0:
+        result = _wait_for_hall_pulse(accel_state)
+
+        if not result['detected']:
+            print(f"Aborting — hall sensor timed out with {pulses_remaining} pulse(s) remaining.")
             return False
-        _current_bin_index = (_current_bin_index + 1) % NUM_BINS
-        print(f"Passed bin index {_current_bin_index}.")
+
+        if result['ccw']:
+            # Motor went backward: bin index retreated by 1
+            _current_bin_index = (_current_bin_index - 1) % NUM_BINS
+            # We now need one extra pulse to make up for the lost ground,
+            # plus one more to cover the backward step itself
+            pulses_remaining += 2
+            print(f"  CCW correction: bin index now {_current_bin_index}, "
+                  f"pulses remaining → {pulses_remaining}")
+        else:
+            # Normal CW pulse
+            _current_bin_index = (_current_bin_index + 1) % NUM_BINS
+            pulses_remaining -= 1
+            print(f"  CW: passed bin index {_current_bin_index}, "
+                  f"pulses remaining → {pulses_remaining}")
 
     print(f"Now at bin index {_current_bin_index}.")
     return _current_bin_index == target_index
@@ -189,20 +241,6 @@ def sort_item(item_id: int) -> bool:
         print(f"Failed to reach carousel index {target_index}.")
     return ok
 
-def sort_item_to_bin(bin_id: int) -> bool:
-    """
-    Rotate the carousel directly to a known bin_id.
-    Called by /api/navigate when the user selects an item from the inventory list.
-    """
-    setup()
-    target_index = bin_id_to_index(bin_id)
-    print(f"Navigating to bin_id {bin_id} -> carousel index {target_index}")
-    ok = rotate_to_bin_index(target_index)
-    if ok:
-        print(f"Carousel at bin_id {bin_id} successfully.")
-    else:
-        print(f"Failed to reach carousel index {target_index}.")
-    return ok
 
 # CLI
 
